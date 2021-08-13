@@ -288,6 +288,8 @@ pub use crate::api::{
 };
 pub use crate::frame::Frame;
 pub use crate::util::{CastFromPrimitive, Pixel, PixelType};
+pub use crate::encoder::ON_PROGRESS;
+pub use crate::encoder::PROGRESS_SCALE;
 
 /// Commonly used types and traits.
 pub mod prelude {

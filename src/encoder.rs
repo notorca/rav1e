@@ -51,6 +51,41 @@ use std::{fmt, io, mem};
 
 use crate::rayon::iter::*;
 
+
+type ProgressCallback = dyn FnMut(f64) -> ();
+
+pub static mut ON_PROGRESS: Option<Box<ProgressCallback>> = None;
+
+pub static mut PROGRESS_SCALE: f64 = 1.;
+
+// An extremely quick-and-dirty way to introduce progress tracking to encoding
+// single frames. My sincere apologies to anyone reading this code.
+struct ProgressTracker {
+  mappings: usize,
+  nested_loop_iterations: usize,
+  counter: usize,
+}
+
+impl ProgressTracker {
+  fn update(&mut self) {
+    self.counter += 1;
+    let counter = self.counter as f64;
+    let mappings = self.mappings as f64;
+    let nested_loop_iterations = self.nested_loop_iterations as f64;
+    unsafe {
+      if let Some(ref mut cb) = ON_PROGRESS {
+        cb(counter / (mappings * nested_loop_iterations) * PROGRESS_SCALE);
+      }
+    }
+  }
+}
+
+static mut PROGRESS: ProgressTracker = ProgressTracker {
+  mappings: 0,
+  nested_loop_iterations: 0,
+  counter: 0,
+};
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CDEFSearchMethod {
@@ -3235,10 +3270,14 @@ fn encode_tile_group<T: Pixel>(
   // dynamic allocation: once per frame
   let mut cdfs = vec![initial_cdf; ti.tile_count()];
 
-  let (raw_tiles, stats): (Vec<_>, Vec<_>) = ti
+  let v = ti
     .tile_iter_mut(fs, &mut blocks)
     .zip(cdfs.iter_mut())
-    .collect::<Vec<_>>()
+    .collect::<Vec<_>>();
+
+    unsafe { PROGRESS.mappings = v.len(); }
+
+  let (raw_tiles, stats): (Vec<_>, Vec<_>) = v
     .into_par_iter()
     .map(|(mut ctx, cdf)| {
       encode_tile(fi, &mut ctx.ts, cdf, &mut ctx.tb, inter_cfg)
@@ -3471,11 +3510,18 @@ fn encode_tile<'a, T: Pixel>(
   let mut last_lru_rdoed = [-1; 3];
   let mut last_lru_coded = [-1; 3];
 
+  unsafe {
+    if PROGRESS.nested_loop_iterations == 0 {
+      PROGRESS.nested_loop_iterations = ts.sb_height * ts.sb_width;
+    }
+  }
+
   // main loop
   for sby in 0..ts.sb_height {
     cw.bc.reset_left_contexts(planes);
 
     for sbx in 0..ts.sb_width {
+      unsafe { PROGRESS.update(); }
       cw.fc_log.clear();
 
       let tile_sbo = TileSuperBlockOffset(SuperBlockOffset { x: sbx, y: sby });

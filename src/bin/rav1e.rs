@@ -306,6 +306,11 @@ fn do_encode<T: Pixel, D: Decoder>(
 }
 
 fn main() {
+  unsafe {
+    rav1e::ON_PROGRESS = Some(
+      Box::new(|progress| println!("{}%", (progress * 100.0) as u32))
+    );
+  }
   #[cfg(feature = "tracing")]
   init_logger();
 
